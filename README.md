@@ -41,6 +41,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## 快速開始
+
+1. 啟動互動模式：
+```bash
+python m3u8_helper.py
+```
+2. 貼上 HAR 檔案路徑或 curl（按空行結束）。
+3. 選擇候選連結後自動下載。
+
 ## 使用方式
 
 ### 1. 已知 m3u8 連結
@@ -58,6 +67,12 @@ python m3u8_helper.py \
 python m3u8_helper.py \
   --page-url "https://example.com/video-page" \
   --referer "https://example.com/video-page"
+```
+
+### 2-1. 互動模式（直接貼 HAR 或 curl）
+
+```bash
+python m3u8_helper.py
 ```
 
 ### 3. 直接下載（執行 ffmpeg）
@@ -168,6 +183,25 @@ python m3u8_helper.py --curl-stdin --debug-headers
 ```bash
 python m3u8_helper.py --har-file /path/to/network.har --run
 ```
+
+## 截圖（示意）
+
+互動模式（HAR 或 curl）：
+![Interactive](docs/screenshots/interactive.svg)
+
+多行 curl 下載：
+![Curl](docs/screenshots/curl.svg)
+
+## 常見問題
+
+1. 遇到 403？
+通常代表 URL 需要有效授權或短效簽名，請以「瀏覽器成功播放當下」匯出 HAR 或複製 cURL。
+
+2. 檔名會被覆蓋嗎？
+預設會在檔名加入時間戳，避免覆蓋。若要關閉請加 `--no-timestamp`。
+
+3. 為什麼找不到影片？
+HTML 可能只嵌入 iframe，請改用 HAR 匯出或 Network 面板尋找 `.m3u8/.mpd` 請求。
 
 ## 開發
 

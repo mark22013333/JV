@@ -1,0 +1,14 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="520" fill="#0b0f14"/>
+  <rect x="20" y="20" width="1160" height="480" rx="12" fill="#111827" stroke="#1f2937" stroke-width="2"/>
+  <text x="40" y="60" fill="#e5e7eb" font-family="Menlo, Consolas, monospace" font-size="20">$ python m3u8_helper.py</text>
+  <text x="40" y="100" fill="#9ca3af" font-family="Menlo, Consolas, monospace" font-size="18">Please paste HAR path or curl. Press Enter for multi-line paste.</text>
+  <text x="40" y="140" fill="#e5e7eb" font-family="Menlo, Consolas, monospace" font-size="18">/path/to/network.har</text>
+  <text x="40" y="190" fill="#9ca3af" font-family="Menlo, Consolas, monospace" font-size="18">Found media candidates from HAR:</text>
+  <text x="40" y="220" fill="#e5e7eb" font-family="Menlo, Consolas, monospace" font-size="18">1. https://cdn.example.com/video/master.m3u8</text>
+  <text x="40" y="250" fill="#e5e7eb" font-family="Menlo, Consolas, monospace" font-size="18">2. https://cdn.example.com/video/index-720p.m3u8</text>
+  <text x="40" y="300" fill="#9ca3af" font-family="Menlo, Consolas, monospace" font-size="18">Pick a number or paste a URL:</text>
+  <text x="40" y="330" fill="#e5e7eb" font-family="Menlo, Consolas, monospace" font-size="18">1</text>
+  <text x="40" y="380" fill="#9ca3af" font-family="Menlo, Consolas, monospace" font-size="18">Downloading...</text>
+  <text x="40" y="410" fill="#e5e7eb" font-family="Menlo, Consolas, monospace" font-size="18">Saved: master-20260215123045.mp4</text>
+</svg>
