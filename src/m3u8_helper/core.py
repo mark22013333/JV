@@ -14,7 +14,7 @@ from __future__ import annotations
 import mimetypes
 import os
 import re
-from typing import Dict, Iterable, List
+from typing import Callable, Dict, Iterable, List
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -31,6 +31,22 @@ DEFAULT_HEADERS = {
     "Accept": "*/*",
     "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
 }
+
+ProgressCallback = Callable[[str], None]
+
+
+def format_size(num_bytes: int) -> str:
+    value = float(num_bytes)
+    units = ("B", "KB", "MB", "GB", "TB")
+
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+
+    return f"{num_bytes} B"
 
 
 def parse_header_kv(header: str) -> tuple[str, str]:
@@ -275,6 +291,7 @@ def download_file(
     output_path: str,
     timeout: int,
     overwrite: bool,
+    progress_callback: ProgressCallback | None = None,
 ) -> str:
     if not overwrite and os.path.exists(output_path):
         raise FileExistsError(f"檔案已存在：{output_path}")
@@ -297,13 +314,44 @@ def download_file(
         resp.close()
         raise FileExistsError(f"檔案已存在：{final_path}")
 
+    content_length = int(resp.headers.get("Content-Length", "0") or 0)
+    if progress_callback:
+        progress_callback(f"[download] 開始下載：{final_path}")
+        if resp.url != url:
+            progress_callback(f"[download] 最終網址：{resp.url}")
+        if content_length > 0:
+            progress_callback(f"[download] 檔案大小：{format_size(content_length)}")
+        else:
+            progress_callback("[download] 檔案大小：未知")
+
     total = 0
+    last_reported_percent = -1
+    last_reported_bytes = 0
     with open(final_path, "wb") as f:
         for chunk in resp.iter_content(chunk_size=1024 * 1024):
             if not chunk:
                 continue
             f.write(chunk)
             total += len(chunk)
+            if not progress_callback:
+                continue
+
+            if content_length > 0:
+                percent = min(100, int(total * 100 / content_length))
+                if percent >= last_reported_percent + 10 or total >= content_length:
+                    progress_callback(
+                        f"[download] 進度 {percent:3d}% "
+                        f"({format_size(total)} / {format_size(content_length)})"
+                    )
+                    last_reported_percent = percent
+            elif total - last_reported_bytes >= 5 * 1024 * 1024:
+                progress_callback(f"[download] 已下載 {format_size(total)}")
+                last_reported_bytes = total
     resp.close()
+
+    if progress_callback and content_length <= 0 and total != last_reported_bytes:
+        progress_callback(f"[download] 已下載 {format_size(total)}")
+    if progress_callback:
+        progress_callback(f"[download] 下載完成：{final_path} ({format_size(total)})")
 
     return f"{final_path} ({total} bytes)"

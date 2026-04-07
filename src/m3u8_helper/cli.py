@@ -350,12 +350,17 @@ def main(argv: List[str] | None = None) -> int:
         if args.run:
             try:
                 print("\n正在下載檔案...\n")
+
+                def log_download_progress(message: str) -> None:
+                    print(message, flush=True)
+
                 result = download_file(
                     direct_url,
                     headers,
                     output_path,
                     args.timeout,
                     args.overwrite,
+                    progress_callback=log_download_progress,
                 )
                 print(f"下載完成：{result}")
             except FileExistsError as exc:
