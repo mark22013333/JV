@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>M3U8 Helper Web</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Spectral:wght@300;400;500&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero__glow"></div>
+      <div class="hero__content">
+        <p class="eyebrow">M3U8 Helper · Web Atelier</p>
+        <h1>將多個 curl 轉為下載指令</h1>
+        <p class="lead">
+          在這裡一次貼上多條 curl，系統會自動解析出 m3u8 / 下載連結並生成對應指令。
+          你也可以替所有結果指定一組「高級訂製檔名」，並在結果中一鍵下載。
+        </p>
+      </div>
+      <div class="hero__ornament"></div>
+    </header>
+
+    <main class="grid">
+      <section class="panel panel--input">
+        <div class="panel__header">
+          <h2>輸入區</h2>
+          <span class="tag">支援多行 / 多段</span>
+        </div>
+
+        <label class="field">
+          <span>多個 curl 指令</span>
+          <textarea id="curlInput" placeholder="貼上多條 curl，每條可用空行分隔。
+
+curl 'https://example.com/playlist.m3u8' -H 'User-Agent: ...'
+
+curl 'https://example.com/file.jpg' -H 'Referer: ...'" rows="12"></textarea>
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span>自訂檔名（選填）</span>
+            <input id="customName" type="text" placeholder="例如：Luxury-Session" />
+            <small>若有多條 curl，會自動加上序號與時間戳。</small>
+          </label>
+          <label class="field">
+            <span>畫質</span>
+            <select id="qualitySelect">
+              <option value="best">best</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+              <option value="worst">worst</option>
+            </select>
+            <small>若 curl 指向 master playlist，會先解析再選擇對應變體。</small>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="parseBtn" class="btn-primary">生成指令</button>
+          <button id="clearBtn" class="btn-ghost">清除</button>
+          <span id="status" class="status">待命</span>
+        </div>
+      </section>
+
+      <section class="panel panel--output">
+        <div class="panel__header">
+          <h2>結果</h2>
+          <span id="countBadge" class="tag">0 筆</span>
+        </div>
+
+        <div id="results" class="results">
+          <div class="placeholder">
+            <div class="placeholder__frame"></div>
+            <p>解析後的指令會顯示在這裡。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer__line"></div>
+      <p>僅限合法授權內容使用。請尊重來源權利。</p>
+    </footer>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

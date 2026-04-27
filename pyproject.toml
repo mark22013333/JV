@@ -28,6 +28,9 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+m3u8_helper = ["web_assets/*"]
+
 [tool.ruff]
 line-length = 100
 

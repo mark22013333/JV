@@ -1,5 +1,16 @@
 from m3u8_helper import core
-from m3u8_helper.core import extract_title, find_m3u8_candidates, guess_output_name, make_title_based_name
+from m3u8_helper.core import (
+    build_ffmpeg_command,
+    build_headers,
+    build_yt_dlp_command,
+    extract_title,
+    find_m3u8_candidates,
+    guess_output_name,
+    make_title_based_name,
+    parse_m3u8_variants,
+    resolve_stream_variant,
+    select_m3u8_variant,
+)
 
 
 class DummyResponse:
@@ -53,6 +64,95 @@ def test_extract_title_og():
 
 def test_make_title_based_name():
     assert make_title_based_name("Hello World", "https://example.com/a.m3u8") == "Hello World.mp4"
+
+
+def test_build_headers_adds_origin_from_referer():
+    headers = build_headers(None, "https://example.com/watch?id=1", None, None)
+    assert headers["Origin"] == "https://example.com"
+
+
+def test_build_ffmpeg_command_uses_dedicated_browser_flags():
+    headers = build_headers("UA-1", "https://example.com/watch", "sid=abc", ["X-Test: yes"])
+    cmd = build_ffmpeg_command(
+        "https://cdn.example.com/master.m3u8",
+        headers,
+        "video.mp4",
+        "ffmpeg",
+        overwrite=False,
+    )
+
+    assert cmd[:5] == ["ffmpeg", "-user_agent", "UA-1", "-referer", "https://example.com/watch"]
+    assert "-headers" in cmd
+    header_blob = cmd[cmd.index("-headers") + 1]
+    assert "Cookie: sid=abc" in header_blob
+    assert "X-Test: yes" in header_blob
+    assert "User-Agent: UA-1" not in header_blob
+    assert "Referer: https://example.com/watch" not in header_blob
+    assert "-allowed_extensions" in cmd
+
+
+def test_build_yt_dlp_command_for_browser_like_requests():
+    headers = build_headers("UA-1", "https://example.com/watch", "sid=abc", ["X-Test: yes"])
+    cmd = build_yt_dlp_command(
+        "https://cdn.example.com/master.m3u8",
+        headers,
+        "video.mp4",
+        "yt-dlp",
+        cookies_from_browser="chrome",
+    )
+
+    assert cmd[:6] == ["yt-dlp", "--no-part", "-o", "video.mp4", "--user-agent", "UA-1"]
+    assert "--referer" in cmd
+    assert "--cookies-from-browser" in cmd
+    assert "chrome" in cmd
+    assert "--add-header" in cmd
+    assert "Cookie: sid=abc" in cmd
+    assert "X-Test: yes" in cmd
+
+
+def test_parse_m3u8_variants_reads_master_playlist():
+    playlist = """
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+low/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1920x1080
+hi/index.m3u8
+"""
+    variants = parse_m3u8_variants(playlist, "https://cdn.example.com/master.m3u8")
+    assert len(variants) == 2
+    assert variants[0]["url"] == "https://cdn.example.com/low/index.m3u8"
+    assert variants[1]["height"] == 1080
+
+
+def test_select_m3u8_variant_prefers_requested_quality():
+    variants = [
+        {"url": "360.m3u8", "width": 640, "height": 360, "bandwidth": 800000, "average_bandwidth": 0, "label": "360p"},
+        {"url": "720.m3u8", "width": 1280, "height": 720, "bandwidth": 1800000, "average_bandwidth": 0, "label": "720p"},
+        {"url": "1080.m3u8", "width": 1920, "height": 1080, "bandwidth": 2800000, "average_bandwidth": 0, "label": "1080p"},
+    ]
+    assert select_m3u8_variant(variants, "best")["url"] == "1080.m3u8"
+    assert select_m3u8_variant(variants, "720p")["url"] == "720.m3u8"
+    assert select_m3u8_variant(variants, "worst")["url"] == "360.m3u8"
+
+
+def test_resolve_stream_variant_chooses_best(monkeypatch):
+    playlist = """
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+low/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1920x1080
+hi/index.m3u8
+"""
+    monkeypatch.setattr(core, "fetch_text_content", lambda *args, **kwargs: playlist)
+    result = resolve_stream_variant(
+        "https://cdn.example.com/master.m3u8",
+        {},
+        timeout=10,
+        quality="best",
+    )
+    assert result["is_master"] is True
+    assert result["quality"] == "1080p"
+    assert result["url"] == "https://cdn.example.com/hi/index.m3u8"
 
 
 def test_download_file_reports_progress(tmp_path, monkeypatch):

@@ -80,7 +80,24 @@ def build_headers(
         for h in extra_headers:
             key, value = parse_header_kv(h)
             headers[key] = value
+    referer_value = headers.get("Referer")
+    if referer_value and "Origin" not in headers:
+        parsed = urlparse(referer_value)
+        if parsed.scheme and parsed.netloc:
+            headers["Origin"] = f"{parsed.scheme}://{parsed.netloc}"
     return headers
+
+
+def _headers_for_ffmpeg(headers: Dict[str, str]) -> tuple[str | None, str | None, str]:
+    user_agent = headers.get("User-Agent") or None
+    referer = headers.get("Referer") or None
+    passthrough = []
+    for key, value in headers.items():
+        if not value or key in {"User-Agent", "Referer"}:
+            continue
+        passthrough.append(f"{key}: {value}")
+    header_blob = "\\r\\n".join(passthrough) + "\\r\\n" if passthrough else ""
+    return user_agent, referer, header_blob
 
 
 def get_page_content(url: str, headers: Dict[str, str], timeout: int) -> str:
@@ -90,6 +107,15 @@ def get_page_content(url: str, headers: Dict[str, str], timeout: int) -> str:
         return resp.text
     except Exception as exc:
         print(f"取得頁面失敗：{exc}")
+        return ""
+
+
+def fetch_text_content(url: str, headers: Dict[str, str], timeout: int) -> str:
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        return resp.text
+    except Exception:
         return ""
 
 
@@ -171,6 +197,121 @@ def is_stream_url(url: str) -> bool:
     return ".m3u8" in url_l or ".mpd" in url_l
 
 
+def _parse_resolution(value: str) -> tuple[int, int]:
+    match = re.match(r"^\s*(\d+)x(\d+)\s*$", value)
+    if not match:
+        return (0, 0)
+    return int(match.group(1)), int(match.group(2))
+
+
+def parse_m3u8_variants(playlist_text: str, playlist_url: str) -> List[Dict[str, object]]:
+    lines = [line.strip() for line in playlist_text.splitlines()]
+    variants: List[Dict[str, object]] = []
+    pending_stream_inf: Dict[str, str] | None = None
+
+    for line in lines:
+        if not line:
+            continue
+        if line.startswith("#EXT-X-STREAM-INF:"):
+            attrs_blob = line.split(":", 1)[1]
+            attrs = dict(re.findall(r'([A-Z0-9-]+)=(".*?"|[^,]+)', attrs_blob))
+            pending_stream_inf = {k: v.strip('"') for k, v in attrs.items()}
+            continue
+        if line.startswith("#"):
+            continue
+        if pending_stream_inf is None:
+            continue
+
+        width, height = _parse_resolution(pending_stream_inf.get("RESOLUTION", ""))
+        bandwidth = int(pending_stream_inf.get("BANDWIDTH", "0") or 0)
+        average_bandwidth = int(pending_stream_inf.get("AVERAGE-BANDWIDTH", "0") or 0)
+        url = _normalize_url(line, playlist_url)
+        label = f"{height}p" if height else os.path.basename(urlparse(url).path) or "variant"
+        variants.append(
+            {
+                "url": url,
+                "resolution": pending_stream_inf.get("RESOLUTION", ""),
+                "width": width,
+                "height": height,
+                "bandwidth": bandwidth,
+                "average_bandwidth": average_bandwidth,
+                "label": label,
+            }
+        )
+        pending_stream_inf = None
+
+    return variants
+
+
+def select_m3u8_variant(variants: List[Dict[str, object]], quality: str) -> Dict[str, object]:
+    if not variants:
+        raise ValueError("沒有可選擇的串流畫質")
+
+    ranked = sorted(
+        variants,
+        key=lambda item: (
+            int(item.get("height", 0)),
+            int(item.get("width", 0)),
+            int(item.get("average_bandwidth", 0)),
+            int(item.get("bandwidth", 0)),
+        ),
+        reverse=True,
+    )
+    if quality == "best":
+        return ranked[0]
+    if quality == "worst":
+        return ranked[-1]
+
+    match = re.fullmatch(r"(\d{3,4})p", quality)
+    if not match:
+        return ranked[0]
+    target_height = int(match.group(1))
+
+    exact = [item for item in ranked if int(item.get("height", 0)) == target_height]
+    if exact:
+        return exact[0]
+
+    smaller_or_equal = [item for item in ranked if int(item.get("height", 0)) <= target_height]
+    if smaller_or_equal:
+        return smaller_or_equal[0]
+
+    return ranked[0]
+
+
+def resolve_stream_variant(
+    m3u8_url: str,
+    headers: Dict[str, str],
+    timeout: int,
+    quality: str,
+) -> Dict[str, object]:
+    playlist_text = fetch_text_content(m3u8_url, headers, timeout)
+    if not playlist_text or "#EXT-X-STREAM-INF" not in playlist_text:
+        return {
+            "url": m3u8_url,
+            "is_master": False,
+            "quality": "source",
+            "variants": [],
+        }
+
+    variants = parse_m3u8_variants(playlist_text, m3u8_url)
+    if not variants:
+        return {
+            "url": m3u8_url,
+            "is_master": False,
+            "quality": "source",
+            "variants": [],
+        }
+
+    selected = select_m3u8_variant(variants, quality)
+    return {
+        "url": str(selected["url"]),
+        "is_master": True,
+        "quality": str(selected["label"]),
+        "selected": selected,
+        "variants": variants,
+    }
+
+
 def extract_title(page_content: str) -> str:
     if not page_content:
         return ""
@@ -202,8 +343,9 @@ def sanitize_filename(text: str, max_len: int = 120) -> str:
     if not text:
         return "video"
     text = text.strip()
-    text = re.sub(r"[<>:\"/\\\\|?*\\x00-\\x1f]", "_", text)
-    text = re.sub(r"\\s+", " ", text).strip()
+    text = re.sub(r'[<>:"/\\|?*]', "_", text)
+    text = re.sub(r"[\x00-\x1f]", "_", text)
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return "video"
     if len(text) > max_len:
@@ -226,16 +368,21 @@ def build_ffmpeg_command(
     ffmpeg_path: str,
     overwrite: bool,
 ) -> List[str]:
-    header_lines = [f"{k}: {v}" for k, v in headers.items() if v]
-    header_blob = "\\r\\n".join(header_lines) + "\\r\\n" if header_lines else ""
+    user_agent, referer, header_blob = _headers_for_ffmpeg(headers)
 
     cmd: List[str] = [ffmpeg_path]
     if overwrite:
         cmd.append("-y")
+    if user_agent:
+        cmd.extend(["-user_agent", user_agent])
+    if referer:
+        cmd.extend(["-referer", referer])
     if header_blob:
         cmd.extend(["-headers", header_blob])
     cmd.extend(
         [
+            "-allowed_extensions",
+            "ALL",
             "-i",
             m3u8_url,
             "-c",
@@ -247,6 +394,33 @@ def build_ffmpeg_command(
             output_path,
         ]
     )
+    return cmd
+
+
+def build_yt_dlp_command(
+    url: str,
+    headers: Dict[str, str],
+    output_path: str,
+    yt_dlp_path: str,
+    cookies_from_browser: str | None = None,
+) -> List[str]:
+    cmd: List[str] = [yt_dlp_path, "--no-part", "-o", output_path]
+
+    user_agent = headers.get("User-Agent")
+    referer = headers.get("Referer")
+    if user_agent:
+        cmd.extend(["--user-agent", user_agent])
+    if referer:
+        cmd.extend(["--referer", referer])
+    if cookies_from_browser:
+        cmd.extend(["--cookies-from-browser", cookies_from_browser])
+
+    for key, value in headers.items():
+        if not value or key in {"User-Agent", "Referer"}:
+            continue
+        cmd.extend(["--add-header", f"{key}: {value}"])
+
+    cmd.append(url)
     return cmd
 
 

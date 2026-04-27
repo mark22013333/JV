@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Backward-compatible shim for running the app directly."""
+"""IDE-friendly entrypoint for the M3U8 Helper Web UI."""
 
 import os
 import sys
@@ -8,11 +8,17 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "src")
 
-# Remove the script directory from import path to avoid shadowing the package.
+# Avoid shadowing the package with the local m3u8_helper.py shim.
 sys.path = [p for p in sys.path if os.path.abspath(p or ".") != HERE]
 sys.path.insert(0, SRC)
 
-from m3u8_helper.cli import main  # noqa: E402
+from m3u8_helper.web_app import run_server  # noqa: E402
+
+
+def main() -> None:
+    # Keep defaults simple for IDE run.
+    run_server()
+
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

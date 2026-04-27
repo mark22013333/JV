@@ -41,14 +41,30 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 快速開始
+## 快速開始（Web UI）
 
-1. 啟動互動模式：
+啟動後會開啟本機 Web 介面，可一次貼上多條 curl 並產生指令：
+
 ```bash
 python m3u8_helper.py
 ```
-2. 貼上 HAR 檔案路徑或 curl（按空行結束）。
-3. 選擇候選連結後自動下載。
+
+預設網址：`http://127.0.0.1:8765`
+
+如需改用傳統 CLI 互動模式：
+
+```bash
+python m3u8_helper.py --cli
+```
+
+可指定 Web UI 的 host/port：
+
+```bash
+python m3u8_helper.py --web --host 0.0.0.0 --port 9000
+```
+
+Web UI 內可直接點擊「立即下載」執行 ffmpeg/curl（需本機已安裝）。
+若系統已安裝 `yt-dlp`，Web UI 遇到串流網址時會優先使用它。
 
 ## 使用方式
 
@@ -69,6 +85,8 @@ python m3u8_helper.py \
   --referer "https://example.com/video-page"
 ```
 
+若頁面本身抓不到公開可見的 `.m3u8`，工具會提示你改貼瀏覽器成功播放當下的 `curl` 或 `HAR`。
+
 ### 2-1. 互動模式（直接貼 HAR 或 curl）
 
 ```bash
@@ -84,7 +102,39 @@ python m3u8_helper.py \
   --run
 ```
 
-### 3-1. 自動加時間戳避免覆蓋（預設開啟）
+若站台對 `ffmpeg` 有 403 防盜鏈限制，建議直接改用：
+
+```bash
+python m3u8_helper.py \
+  --m3u8-url "https://media.example.com/playlist.m3u8" \
+  --referer "https://media.example.com/watch" \
+  --downloader yt-dlp \
+  --run
+```
+
+若影片播放需要登入狀態，可再加上：
+
+```bash
+python m3u8_helper.py --curl-stdin --downloader yt-dlp --cookies-from-browser chrome --run
+```
+
+### 3-1. 自動選最高畫質或指定畫質
+
+若輸入的是 master playlist，工具會先解析可用變體，預設選 `best`：
+
+```bash
+python m3u8_helper.py --curl-stdin --quality best --run
+```
+
+也可以指定畫質：
+
+```bash
+python m3u8_helper.py --curl-stdin --quality 1080p --run
+python m3u8_helper.py --curl-stdin --quality 720p --run
+python m3u8_helper.py --curl-stdin --quality worst --run
+```
+
+### 3-2. 自動加時間戳避免覆蓋（預設開啟）
 
 預設會自動在檔名加入 yyyyMMddHHmmss，若要關閉請加上：
 
@@ -92,7 +142,7 @@ python m3u8_helper.py \
 python m3u8_helper.py --curl-stdin --run --no-timestamp
 ```
 
-### 3-2. 以頁面標題當檔名
+### 3-3. 以頁面標題當檔名
 
 會使用 `--page-url` 或 `Referer` 的頁面標題作為檔名（仍會加上時間戳）：
 
@@ -109,6 +159,10 @@ python m3u8_helper.py \
   -H "Referer: https://media.example.com/watch" \
   -H "Cookie: session=your_session_cookie"
 ```
+
+補充：
+- 工具現在會在有 `Referer` 時自動補上對應 `Origin`
+- `ffmpeg` 會使用 `-user_agent` / `-referer` 專屬參數，其他 headers 則透過 `-headers` 傳遞
 
 ### 5. 直接貼上 curl 指令（一鍵解析）
 
@@ -148,12 +202,18 @@ python m3u8_helper.py --clipboard --run
 
 補充：若 curl 的 URL 不是 `.m3u8`，工具會直接下載該檔案（例如圖片、影片或其他檔案）。
 
-### 7. 直接執行（預設互動模式）
+### 7. 直接執行（預設 Web UI）
 
-不帶參數直接執行時，會進入互動模式，可直接貼 HAR 檔案路徑或 curl，貼完即自動下載：
+不帶參數直接執行時，會啟動 Web UI（可貼上多條 curl）：
 
 ```bash
 python m3u8_helper.py
+```
+
+若要使用傳統 CLI 互動模式，請加上：
+
+```bash
+python m3u8_helper.py --cli
 ```
 
 ### 8. 檢查連結與 Debug Headers
@@ -196,6 +256,7 @@ python m3u8_helper.py --har-file /path/to/network.har --run
 
 1. 遇到 403？
 通常代表 URL 需要有效授權或短效簽名，請以「瀏覽器成功播放當下」匯出 HAR 或複製 cURL。
+若 `ffmpeg` 仍失敗，優先嘗試 `--downloader yt-dlp`，必要時再搭配 `--cookies-from-browser chrome`（或 `safari`/`edge`/`firefox`）。
 
 2. 檔名會被覆蓋嗎？
 預設會在檔名加入時間戳，避免覆蓋。若要關閉請加 `--no-timestamp`。

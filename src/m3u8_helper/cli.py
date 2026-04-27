@@ -10,6 +10,7 @@ import argparse
 import os
 import platform
 import shlex
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -18,6 +19,7 @@ from typing import List
 from .core import (
     build_ffmpeg_command,
     build_headers,
+    build_yt_dlp_command,
     check_url,
     download_file,
     extract_title,
@@ -26,6 +28,7 @@ from .core import (
     guess_output_name,
     is_stream_url,
     make_title_based_name,
+    resolve_stream_variant,
 )
 from .curl_parser import parse_curl_command
 from .har_parser import extract_media_candidates, load_har
@@ -155,7 +158,9 @@ def interactive_bootstrap() -> List[str]:
         return ["--curl", first_line, "--run"]
 
     if first_line.startswith("http://") or first_line.startswith("https://"):
-        return ["--curl", f"curl '{first_line}'", "--run"]
+        if is_stream_url(first_line):
+            return ["--curl", f"curl '{first_line}'", "--run"]
+        return ["--page-url", first_line, "--run"]
 
     # Fallback: treat as curl text and allow user to continue in stdin mode
     print("無法判斷輸入內容，將進入多行 curl 貼上模式。")
@@ -187,8 +192,18 @@ def resolve_title_name(
     return ""
 
 
+def choose_stream_downloader(preferred: str, yt_dlp_path: str) -> str:
+    if preferred in {"ffmpeg", "yt-dlp"}:
+        return preferred
+    return "yt-dlp" if shutil.which(yt_dlp_path) else "ffmpeg"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="M3U8 下載輔助工具（僅限合法授權內容）")
+    parser.add_argument("--web", action="store_true", help="啟動 Web UI（預設）")
+    parser.add_argument("--host", default="127.0.0.1", help="Web UI 綁定 host")
+    parser.add_argument("--port", type=int, default=8765, help="Web UI 綁定 port")
+    parser.add_argument("--cli", action="store_true", help="改用傳統 CLI 互動模式")
     parser.add_argument("-p", "--page-url", help="影片頁面網址（用來掃描 m3u8）")
     parser.add_argument("-m", "--m3u8-url", help="已知的 m3u8 網址")
     parser.add_argument("--curl", help="貼上 curl 指令（自動解析 URL 與 headers）")
@@ -223,6 +238,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max", type=int, default=10, help="最多顯示幾個候選 m3u8")
     parser.add_argument("--auto", action="store_true", help="自動選擇第一個候選")
     parser.add_argument("--ffmpeg", default="ffmpeg", help="ffmpeg 執行檔路徑")
+    parser.add_argument(
+        "--downloader",
+        choices=("auto", "ffmpeg", "yt-dlp"),
+        default="auto",
+        help="串流下載器：auto 會優先使用已安裝的 yt-dlp，否則使用 ffmpeg",
+    )
+    parser.add_argument("--yt-dlp", default="yt-dlp", help="yt-dlp 執行檔路徑")
+    parser.add_argument(
+        "--cookies-from-browser",
+        help="提供給 yt-dlp 的瀏覽器名稱，例如 chrome/safari/edge/firefox",
+    )
+    parser.add_argument(
+        "--quality",
+        default="best",
+        help="串流畫質：best、worst，或指定 1080p / 720p / 480p",
+    )
     parser.add_argument("--overwrite", action="store_true", help="若輸出檔存在，直接覆蓋")
     parser.add_argument("--check", action="store_true", help="先檢查 m3u8 是否可存取")
     parser.add_argument("--debug-headers", action="store_true", help="列出實際送出的 headers")
@@ -233,12 +264,21 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: List[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
-    if not argv:
-        # Interactive default: paste HAR path or curl and auto-download
-        argv = interactive_bootstrap()
 
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    web_requested = args.web or (not argv and not args.cli) or ("--host" in argv or "--port" in argv)
+    if web_requested and not args.cli:
+        from .web_app import run_server
+
+        run_server(args.host, args.port)
+        return 0
+
+    if args.cli and len(argv) == 1:
+        # Interactive default: paste HAR path or curl and auto-download
+        argv = interactive_bootstrap()
+        args = parser.parse_args(argv)
 
     curl_cmd = ""
     if args.curl:
@@ -390,6 +430,7 @@ def main(argv: List[str] | None = None) -> int:
         if args.auto:
             if not candidates:
                 print("找不到 m3u8，請改用 --m3u8-url。")
+                print("提示：如果影片是播放器動態載入，請在瀏覽器 Network 匯出 HAR，或複製成功播放時的 curl 再貼給工具。")
                 return 1
             m3u8_url = candidates[0]
             print(f"已自動選擇：{m3u8_url}")
@@ -397,7 +438,18 @@ def main(argv: List[str] | None = None) -> int:
             m3u8_url = prompt_for_m3u8(candidates)
             if not m3u8_url:
                 print("未提供 m3u8，結束。")
+                print("提示：若頁面本身找不到串流，可改用 --har-file、--curl 或 --curl-stdin。")
                 return 0
+
+    selected_quality = "source"
+    if m3u8_url and ".m3u8" in m3u8_url.lower():
+        stream_info = resolve_stream_variant(m3u8_url, headers, args.timeout, args.quality)
+        if stream_info.get("is_master"):
+            selected_quality = str(stream_info.get("quality", "source"))
+            m3u8_url = str(stream_info["url"])
+            print(f"已從 master playlist 選擇畫質：{selected_quality}")
+        else:
+            selected_quality = "source"
 
     output_path = args.output or guess_output_name(m3u8_url)
     if args.name_from_title and not args.output:
@@ -407,18 +459,30 @@ def main(argv: List[str] | None = None) -> int:
     if not args.no_timestamp:
         output_path = add_timestamp_to_path(output_path)
 
-    ffmpeg_cmd = build_ffmpeg_command(
-        m3u8_url,
-        headers,
-        output_path,
-        args.ffmpeg,
-        args.overwrite,
-    )
+    stream_downloader = choose_stream_downloader(args.downloader, args.yt_dlp)
+    if stream_downloader == "yt-dlp":
+        stream_cmd = build_yt_dlp_command(
+            m3u8_url,
+            headers,
+            output_path,
+            args.yt_dlp,
+            cookies_from_browser=args.cookies_from_browser,
+        )
+    else:
+        stream_cmd = build_ffmpeg_command(
+            m3u8_url,
+            headers,
+            output_path,
+            args.ffmpeg,
+            args.overwrite,
+        )
 
     if args.check:
         print("\n=== 檢查 m3u8 連結 ===")
         result = check_url(m3u8_url, headers, args.timeout)
         print(f"{result['method']} {result['status']} {result['reason']}")
+        if selected_quality != "source":
+            print(f"Selected Quality: {selected_quality}")
         if result.get("final_url") and result["final_url"] != m3u8_url:
             print(f"Final URL: {result['final_url']}")
         if result["status"] >= 400 or result["status"] == 0:
@@ -426,18 +490,21 @@ def main(argv: List[str] | None = None) -> int:
             if not args.run:
                 return 2
 
-    print("\n=== 建議使用的 ffmpeg 指令 ===\n")
-    print(format_command_multiline(ffmpeg_cmd))
+    print(f"\n=== 建議使用的 {stream_downloader} 指令 ===\n")
+    print(format_command_multiline(stream_cmd))
 
     if args.run:
-        print("\n正在執行 ffmpeg...\n")
+        print(f"\n正在執行 {stream_downloader}...\n")
         try:
-            subprocess.run(ffmpeg_cmd, check=True)
+            subprocess.run(stream_cmd, check=True)
         except FileNotFoundError:
-            print("找不到 ffmpeg，請確認已安裝且在 PATH 內，或使用 --ffmpeg 指定路徑。")
+            missing = args.yt_dlp if stream_downloader == "yt-dlp" else args.ffmpeg
+            print(f"找不到 {stream_downloader}（{missing}），請確認已安裝且在 PATH 內。")
             return 1
         except subprocess.CalledProcessError as exc:
-            print(f"ffmpeg 執行失敗（return code={exc.returncode}）。")
+            print(f"{stream_downloader} 執行失敗（return code={exc.returncode}）。")
+            if stream_downloader == "ffmpeg":
+                print("若網站有 403 防盜鏈，建議改用 --downloader yt-dlp，必要時再加 --cookies-from-browser。")
             return exc.returncode
 
     return 0
