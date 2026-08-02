@@ -1,0 +1,47 @@
+:root { color-scheme: dark; --bg:#0d0f0e; --panel:#171a17; --line:#363b35; --text:#ece9dc; --muted:#969c91; --orange:#f36b35; --acid:#d8f36a; --red:#ff7169; --mono:"SFMono-Regular",Menlo,Consolas,monospace; }
+* { box-sizing: border-box; }
+body { margin:0; width:390px; max-height:600px; overflow-y:auto; background:var(--bg); color:var(--text); font:11px/1.5 var(--mono); }
+header { position:sticky; top:0; z-index:3; display:flex; justify-content:space-between; align-items:center; padding:15px 16px; background:rgba(13,15,14,.96); border-bottom:1px solid var(--line); }
+.eyebrow { color:var(--orange); font-size:8px; letter-spacing:.18em; }
+h1 { margin:2px 0 0; font:900 20px/1 "Arial Narrow",Impact,sans-serif; letter-spacing:-.02em; }
+.connection { color:var(--muted); font-size:9px; padding:5px 7px; border:1px solid var(--line); }
+.connection.online { color:var(--acid); border-color:#65702f; }
+.pair-panel { padding:14px 16px; background:#27160f; border-bottom:1px solid #6c321d; }
+.pair-panel p { color:#c5aa9c; margin:6px 0 10px; font-size:9px; }
+.pair-row { display:grid; grid-template-columns:1fr auto; gap:7px; }
+input, select, button { border:1px solid var(--line); border-radius:0; background:#0f120f; color:var(--text); font:10px var(--mono); }
+input, select { width:100%; min-height:34px; padding:8px 9px; }
+button { min-height:34px; padding:0 11px; cursor:pointer; text-transform:uppercase; font-weight:700; letter-spacing:.05em; }
+button:hover { border-color:var(--text); }
+button:disabled { opacity:.45; cursor:not-allowed; }
+.pair-row button, .candidate button { background:var(--orange); border-color:var(--orange); color:#160b07; }
+.permission-note { padding:10px 16px; color:var(--muted); border-bottom:1px solid var(--line); }
+.permission-note summary { cursor:pointer; font-size:9px; }
+.permission-note p { font-size:9px; margin:8px 0 2px; }
+main { padding:13px 16px 18px; }
+.section-head { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:9px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:8px; }
+.text-button { min-height:0; padding:0; border:0; color:var(--muted); background:transparent; }
+.candidate-list, .job-list { display:grid; gap:6px; }
+.empty { padding:19px 11px; text-align:center; color:var(--muted); background:var(--panel); border:1px dashed var(--line); }
+.candidate { display:grid; grid-template-columns:1fr auto; gap:9px; padding:10px; background:var(--panel); border:1px solid var(--line); }
+.candidate__top { display:flex; gap:6px; align-items:center; margin-bottom:5px; }
+.tag { color:var(--acid); font-size:8px; border:1px solid #56602b; padding:2px 4px; }
+.candidate__host { font-weight:700; }
+.candidate__path { color:var(--muted); font-size:9px; word-break:break-all; }
+.candidate__time { color:var(--muted); font-size:8px; margin-top:5px; }
+.download-options { display:grid; grid-template-columns:1fr 90px; gap:7px; margin:11px 0 18px; }
+.download-options label span { display:block; color:var(--muted); font-size:8px; margin-bottom:4px; }
+.queue-head { padding-top:12px; border-top:1px solid var(--line); }
+.job { padding:9px 10px; background:var(--panel); border-left:2px solid var(--line); }
+.job.active { border-left-color:var(--orange); }
+.job.completed { border-left-color:var(--acid); }
+.job.failed { border-left-color:var(--red); }
+.job__top { display:flex; justify-content:space-between; gap:8px; }
+.job__state { color:var(--muted); font-size:8px; text-transform:uppercase; }
+.job__source { margin-top:4px; color:var(--muted); font-size:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bar { height:3px; background:#090a09; margin-top:7px; }
+.bar i { display:block; height:100%; background:var(--orange); }
+.message { color:var(--red)!important; }
+footer { position:sticky; bottom:0; display:flex; align-items:center; gap:10px; padding:10px 16px; background:rgba(13,15,14,.97); border-top:1px solid var(--line); }
+footer button { color:var(--text); background:var(--panel); }
+#toast { color:var(--muted); font-size:8px; }

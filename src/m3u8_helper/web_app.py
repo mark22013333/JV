@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
+from pathlib import Path
 from typing import Dict, List
 from urllib.parse import urlparse
 
@@ -25,6 +27,8 @@ from .core import (
     sanitize_filename,
 )
 from .curl_parser import parse_curl_command
+from .jobs import DownloadJobManager, JobError
+from .settings import SettingsError, SettingsManager
 
 
 @dataclass
@@ -268,6 +272,10 @@ class WebHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        origin = self.headers.get("Origin", "")
+        if self.server.settings.is_extension_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.end_headers()
         self.wfile.write(body)
 
@@ -278,9 +286,90 @@ class WebHandler(BaseHTTPRequestHandler):
     def _read_asset(self, rel_path: str) -> bytes:
         return ASSET_ROOT.joinpath(rel_path).read_bytes()
 
+    def _read_json(self) -> Dict[str, object] | None:
+        length = int(self.headers.get("Content-Length", "0"))
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._send_json(400, {"error": "無效的 JSON 格式"})
+            return None
+        if not isinstance(payload, dict):
+            self._send_json(400, {"error": "JSON 內容必須是物件。"})
+            return None
+        return payload
+
+    def _is_local_web_request(self) -> bool:
+        origin = self.headers.get("Origin", "")
+        if not origin:
+            return True
+        parsed = urlparse(origin)
+        return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+
+    def _authorized(self) -> bool:
+        if self._is_local_web_request():
+            return True
+        origin = self.headers.get("Origin", "")
+        return self.server.settings.authorize_extension(
+            origin,
+            self.headers.get("Authorization", ""),
+        )
+
+    def _require_authorized(self) -> bool:
+        if self._authorized():
+            return True
+        self._send_json(401, {"error": "尚未配對，或授權權杖已失效。"})
+        return False
+
+    def do_OPTIONS(self) -> None:
+        origin = self.headers.get("Origin", "")
+        if not self.server.settings.is_extension_origin(origin):
+            return self._send_bytes(403, b"Forbidden", "text/plain; charset=utf-8")
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Vary", "Origin")
+        self.end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/health":
+            settings = self.server.settings.public_settings()
+            return self._send_json(
+                200,
+                {
+                    "status": "ok",
+                    "version": "0.2.0",
+                    "paired": settings["paired"],
+                    "tools": {
+                        "yt_dlp": bool(shutil.which("yt-dlp")),
+                        "ffmpeg": bool(shutil.which("ffmpeg")),
+                    },
+                },
+            )
+
+        if path == "/api/jobs":
+            if not self._require_authorized():
+                return
+            return self._send_json(200, {"jobs": self.server.jobs.list_jobs()})
+
+        if path.startswith("/api/jobs/"):
+            if not self._require_authorized():
+                return
+            job_id = path.removeprefix("/api/jobs/").strip("/")
+            job = self.server.jobs.get_job(job_id)
+            if not job:
+                return self._send_json(404, {"error": "找不到指定的下載工作。"})
+            return self._send_json(200, job)
+
+        if path == "/api/settings":
+            if not self._require_authorized():
+                return
+            return self._send_json(200, self.server.settings.public_settings())
 
         if path in ("/", "/index.html"):
             body = self._read_asset("index.html")
@@ -300,15 +389,70 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path not in ("/api/parse", "/api/run"):
-            return self._send_bytes(404, b"Not Found", "text/plain; charset=utf-8")
+        path = parsed.path
+        payload = self._read_json()
+        if payload is None:
+            return
 
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length) if length else b"{}"
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError:
-            return self._send_json(400, {"error": "無效的 JSON 格式"})
+        if path == "/api/pair":
+            origin = self.headers.get("Origin", "")
+            try:
+                token = self.server.settings.pair(str(payload.get("code", "")), origin)
+            except SettingsError as exc:
+                return self._send_json(400, {"error": str(exc)})
+            return self._send_json(200, {"status": "paired", "token": token})
+
+        if path == "/api/pairing-code":
+            if not self._is_local_web_request():
+                return self._send_json(403, {"error": "只能從本機工具產生配對碼。"})
+            return self._send_json(200, self.server.settings.new_pairing_code())
+
+        if path == "/api/jobs":
+            if not self._require_authorized():
+                return
+            curl_text = str(payload.get("curl_text", "")).strip()
+            if curl_text:
+                commands = split_curl_commands(curl_text)
+                try:
+                    index = int(payload.get("index", 1))
+                except (TypeError, ValueError):
+                    index = 1
+                if index < 1 or index > len(commands):
+                    return self._send_json(400, {"error": "cURL 索引超出範圍。"})
+                url, curl_headers = parse_curl_command(commands[index - 1])
+                if not url:
+                    return self._send_json(400, {"error": "無法從 cURL 解析出網址。"})
+                payload["url"] = url
+                payload["headers"] = curl_headers
+            try:
+                job = self.server.jobs.create_job(payload)
+            except (JobError, SettingsError) as exc:
+                return self._send_json(400, {"error": str(exc)})
+            return self._send_json(202, job)
+
+        if path.startswith("/api/jobs/") and path.endswith("/cancel"):
+            if not self._require_authorized():
+                return
+            job_id = path.removeprefix("/api/jobs/").removesuffix("/cancel").strip("/")
+            job = self.server.jobs.cancel_job(job_id)
+            if not job:
+                return self._send_json(404, {"error": "找不到指定的下載工作。"})
+            return self._send_json(200, job)
+
+        if path == "/api/settings/open-output":
+            if not self._require_authorized():
+                return
+            try:
+                output_dir = self.server.settings.ensure_output_dir()
+                open_output_directory(output_dir)
+            except (SettingsError, OSError) as exc:
+                return self._send_json(500, {"error": f"無法開啟下載資料夾：{exc}"})
+            return self._send_json(200, {"status": "ok"})
+
+        if path not in ("/api/parse", "/api/run"):
+            return self._send_bytes(404, b"Not Found", "text/plain; charset=utf-8")
+        if not self._require_authorized():
+            return
 
         curl_text = str(payload.get("curl_text", ""))
         custom_name = str(payload.get("custom_name", "")).strip() or None
@@ -337,9 +481,58 @@ class WebHandler(BaseHTTPRequestHandler):
         result = run_single_request(commands[index - 1], custom_name, index, len(commands), quality)
         return self._send_json(200, result)
 
+    def do_PUT(self) -> None:
+        path = urlparse(self.path).path
+        if path != "/api/settings":
+            return self._send_bytes(404, b"Not Found", "text/plain; charset=utf-8")
+        if not self._require_authorized():
+            return
+        payload = self._read_json()
+        if payload is None:
+            return
+        try:
+            settings = self.server.settings.update_output_dir(str(payload.get("output_dir", "")))
+        except SettingsError as exc:
+            return self._send_json(400, {"error": str(exc)})
+        return self._send_json(200, settings)
+
+
+class M3U8HTTPServer(ThreadingHTTPServer):
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        settings: SettingsManager,
+        jobs: DownloadJobManager,
+    ) -> None:
+        super().__init__(server_address, WebHandler)
+        self.settings = settings
+        self.jobs = jobs
+
+
+def open_output_directory(path: Path) -> None:
+    system = platform.system()
+    if system == "Darwin":
+        cmd = ["open", str(path)]
+    elif system == "Windows":
+        cmd = ["explorer", str(path)]
+    else:
+        cmd = ["xdg-open", str(path)]
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def build_server(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    settings: SettingsManager | None = None,
+    jobs: DownloadJobManager | None = None,
+) -> M3U8HTTPServer:
+    settings_manager = settings or SettingsManager()
+    job_manager = jobs or DownloadJobManager(settings_manager)
+    return M3U8HTTPServer((host, port), settings_manager, job_manager)
+
 
 def run_server(host: str = "127.0.0.1", port: int = 8765) -> None:
-    server = ThreadingHTTPServer((host, port), WebHandler)
+    server = build_server(host, port)
     print(f"Web UI 已啟動：http://{host}:{port}")
     print("按 Ctrl+C 結束。")
     try:
@@ -348,6 +541,7 @@ def run_server(host: str = "127.0.0.1", port: int = 8765) -> None:
         print("\n使用者中斷")
     finally:
         server.server_close()
+        server.jobs.shutdown()
 
 
-__all__ = ["run_server"]
+__all__ = ["M3U8HTTPServer", "WebHandler", "build_server", "run_server"]

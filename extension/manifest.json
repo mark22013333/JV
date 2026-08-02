@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "M3U8 Helper",
+  "version": "0.2.0",
+  "description": "偵測目前分頁的影音串流，交由本機 M3U8 Helper 下載。",
+  "minimum_chrome_version": "102",
+  "permissions": ["storage", "tabs", "webRequest"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "action": {
+    "default_title": "M3U8 Helper",
+    "default_popup": "popup.html"
+  }
+}
