@@ -3,90 +3,111 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>M3U8 Helper Web</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Spectral:wght@300;400;500&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <title>M3U8 Helper｜本機下載控制台</title>
   <link rel="stylesheet" href="/assets/styles.css" />
 </head>
 <body>
-  <div class="page">
-    <header class="hero">
-      <div class="hero__glow"></div>
-      <div class="hero__content">
-        <p class="eyebrow">M3U8 Helper · Web Atelier</p>
-        <h1>將多個 curl 轉為下載指令</h1>
-        <p class="lead">
-          在這裡一次貼上多條 curl，系統會自動解析出 m3u8 / 下載連結並生成對應指令。
-          你也可以替所有結果指定一組「高級訂製檔名」，並在結果中一鍵下載。
-        </p>
+  <div class="noise" aria-hidden="true"></div>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <p class="kicker">LOCAL MEDIA INTAKE · 127.0.0.1</p>
+        <h1>M3U8<br /><span>HELPER</span></h1>
       </div>
-      <div class="hero__ornament"></div>
+      <div class="service-readout">
+        <span id="healthLamp" class="lamp"></span>
+        <div>
+          <strong id="healthText">正在檢查本機服務</strong>
+          <small id="toolText">等待工具資訊…</small>
+        </div>
+      </div>
     </header>
 
-    <main class="grid">
-      <section class="panel panel--input">
-        <div class="panel__header">
-          <h2>輸入區</h2>
-          <span class="tag">支援多行 / 多段</span>
+    <section class="notice" aria-label="使用限制">
+      <span>AUTHORIZED CONTENT ONLY</span>
+      <p>僅下載你有合法使用權的內容。本工具不處理 DRM，也不繞過付費牆或存取限制。</p>
+    </section>
+
+    <div class="dashboard-grid">
+      <section class="module module--wide">
+        <div class="module__head">
+          <div><span class="module__index">01</span><h2>手動輸入</h2></div>
+          <span class="module__meta">cURL FALLBACK</span>
         </div>
 
         <label class="field">
-          <span>多個 curl 指令</span>
-          <textarea id="curlInput" placeholder="貼上多條 curl，每條可用空行分隔。
-
-curl 'https://example.com/playlist.m3u8' -H 'User-Agent: ...'
-
-curl 'https://example.com/file.jpg' -H 'Referer: ...'" rows="12"></textarea>
+          <span>瀏覽器複製的 cURL，可貼入多筆</span>
+          <textarea id="curlInput" rows="9" spellcheck="false" placeholder="curl 'https://media.example.com/master.m3u8' \
+  -H 'Referer: https://example.com/watch' \
+  -H 'Cookie: ...'"></textarea>
         </label>
 
-        <div class="field-row">
+        <div class="field-grid">
           <label class="field">
-            <span>自訂檔名（選填）</span>
-            <input id="customName" type="text" placeholder="例如：Luxury-Session" />
-            <small>若有多條 curl，會自動加上序號與時間戳。</small>
+            <span>檔名（選填）</span>
+            <input id="customName" type="text" placeholder="頁面標題或自訂名稱" />
           </label>
           <label class="field">
-            <span>畫質</span>
+            <span>偏好畫質</span>
             <select id="qualitySelect">
-              <option value="best">best</option>
+              <option value="best">最高畫質</option>
               <option value="1080p">1080p</option>
               <option value="720p">720p</option>
               <option value="480p">480p</option>
-              <option value="worst">worst</option>
+              <option value="worst">最低畫質</option>
             </select>
-            <small>若 curl 指向 master playlist，會先解析再選擇對應變體。</small>
           </label>
         </div>
 
         <div class="actions">
-          <button id="parseBtn" class="btn-primary">生成指令</button>
-          <button id="clearBtn" class="btn-ghost">清除</button>
-          <span id="status" class="status">待命</span>
+          <button id="parseBtn" class="button button--primary">分析來源</button>
+          <button id="clearBtn" class="button button--quiet">清除</button>
+          <span id="status" class="inline-status">待命</span>
         </div>
+        <div id="results" class="source-results" aria-live="polite"></div>
       </section>
 
-      <section class="panel panel--output">
-        <div class="panel__header">
-          <h2>結果</h2>
-          <span id="countBadge" class="tag">0 筆</span>
-        </div>
-
-        <div id="results" class="results">
-          <div class="placeholder">
-            <div class="placeholder__frame"></div>
-            <p>解析後的指令會顯示在這裡。</p>
+      <aside class="side-stack">
+        <section class="module">
+          <div class="module__head">
+            <div><span class="module__index">02</span><h2>擴充功能配對</h2></div>
           </div>
-        </div>
-      </section>
-    </main>
+          <p class="helper">在 Chrome／Edge 擴充功能輸入下方六位數代碼。代碼十分鐘後失效。</p>
+          <div class="pair-code" id="pairCode" aria-live="polite">— — — — — —</div>
+          <button id="pairCodeBtn" class="button button--block">產生配對碼</button>
+          <p id="pairState" class="microcopy">尚未讀取配對狀態</p>
+        </section>
 
-    <footer class="footer">
-      <div class="footer__line"></div>
-      <p>僅限合法授權內容使用。請尊重來源權利。</p>
+        <section class="module">
+          <div class="module__head">
+            <div><span class="module__index">03</span><h2>下載位置</h2></div>
+          </div>
+          <label class="field">
+            <span>固定資料夾（絕對路徑）</span>
+            <input id="outputDir" type="text" spellcheck="false" />
+          </label>
+          <div class="button-row">
+            <button id="saveSettingsBtn" class="button button--primary">儲存</button>
+            <button id="openFolderBtn" class="button button--quiet">開啟資料夾</button>
+          </div>
+          <p id="settingsState" class="microcopy"></p>
+        </section>
+      </aside>
+    </div>
+
+    <section class="module queue-module">
+      <div class="module__head">
+        <div><span class="module__index">04</span><h2>下載佇列</h2></div>
+        <div class="queue-summary"><span id="activeCount">0 執行中</span><span id="jobCount">0 筆紀錄</span></div>
+      </div>
+      <div id="jobList" class="job-list" aria-live="polite"></div>
+    </section>
+
+    <footer>
+      <span>M3U8 HELPER / LOCAL SERVICE</span>
+      <span>服務保持在本機，敏感 Header 不顯示於工作紀錄。</span>
     </footer>
-  </div>
-
+  </main>
   <script src="/assets/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>M3U8 Helper</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <span class="eyebrow">LOCAL INTAKE</span>
+      <h1>M3U8 HELPER</h1>
+    </div>
+    <span id="connection" class="connection">檢查中</span>
+  </header>
+
+  <section id="pairPanel" class="pair-panel" hidden>
+    <strong>連接本機下載服務</strong>
+    <p>先開啟完整工具並產生六位數配對碼。擴充功能只會把偵測到的來源送至你的本機。</p>
+    <div class="pair-row">
+      <input id="pairCode" inputmode="numeric" maxlength="6" placeholder="000000" aria-label="六位數配對碼" />
+      <button id="pairBtn">配對</button>
+    </div>
+    <p id="pairMessage" class="message"></p>
+  </section>
+
+  <details class="permission-note">
+    <summary>為什麼需要網站存取權？</summary>
+    <p>影音通常由跨網域 CDN 提供。擴充功能只觀察媒體請求，不會修改、封鎖或上傳瀏覽內容；Cookie 等敏感 Header 僅保留在目前瀏覽器工作階段。</p>
+  </details>
+
+  <main>
+    <div class="section-head">
+      <span>目前分頁來源</span>
+      <button id="clearBtn" class="text-button">清除</button>
+    </div>
+    <div id="candidateList" class="candidate-list"></div>
+
+    <div class="download-options">
+      <label><span>檔名（選填）</span><input id="filename" type="text" placeholder="預設使用頁面標題" /></label>
+      <label><span>畫質</span><select id="quality"><option value="best">最高</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="480p">480p</option><option value="worst">最低</option></select></label>
+    </div>
+
+    <div class="section-head queue-head"><span>下載佇列</span><span id="jobSummary">0 筆</span></div>
+    <div id="jobList" class="job-list"></div>
+  </main>
+
+  <footer>
+    <button id="openToolBtn">開啟完整工具</button>
+    <span id="toast" role="status"></span>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>
